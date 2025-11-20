@@ -1,0 +1,984 @@
+/*
+ * Simple Library Management System in C
+ * Features:
+ *  - Add book
+ *  - Display all books
+ *  - Search book by ID or Title
+ *  - Modify book record
+ *  - Delete book record
+ *  - Issue book to student
+ *  - Return book
+ *  - Persist data in binary files: books.dat and issues.dat
+ *
+ * Note: This is a console program for learning/educational use.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define BOOKS_FILE "books.dat"
+#define ISSUES_FILE "issues.dat"
+#define MAX_STRING 100
+
+/* Book structure */
+typedef struct {
+    int id;                         // unique book id
+    char title[MAX_STRING];
+    char author[MAX_STRING];
+    char publisher[MAX_STRING];
+    int quantity;                   // total copies available in library
+} Book;
+
+/* Issue structure - keeps track of issued books */
+typedef struct {
+    int book_id;                    // id of the issued book
+    char student_name[MAX_STRING];  // who borrowed
+    char issue_date[20];            // simplified date as string (e.g. "2025-11-04")
+} Issue;
+
+/* Utility prototypes */
+void clear_stdin(void);
+void pause_and_clear(void);
+
+/* Core operations prototypes */
+void addBook(void);
+void displayBooks(void);
+void searchBookById(void);
+void searchBookByTitle(void);
+void modifyBook(void);
+void deleteBook(void);
+void issueBook(void);
+void returnBook(void);
+
+/* Helper file functions */
+int bookExists(int id, Book *foundBook);
+void updateBookRecord(Book *updatedBook);
+void removeNewline(char *s);
+
+/* ---------- Implementation ---------- */
+
+int main(void) {
+    int choice;
+    while (1) {
+        printf("\n==== Library Management System ====\n");
+        printf("1. Add Book\n");
+        printf("2. Display All Books\n");
+        printf("3. Search Book by ID\n");
+        printf("4. Search Book by Title\n");
+        printf("5. Modify Book\n");
+        printf("6. Delete Book\n");
+        printf("7. Issue Book\n");
+        printf("8. Return Book\n");
+        printf("9. Exit\n");
+        printf("Enter your choice: ");
+        if (scanf("%d", &choice) != 1) {
+            printf("Invalid input. Please enter a number.\n");
+            clear_stdin();
+            continue;
+        }
+        clear_stdin();
+
+        switch (choice) {
+            case 1: addBook(); break;
+            case 2: displayBooks(); break;
+            case 3: searchBookById(); break;
+            case 4: searchBookByTitle(); break;
+            case 5: modifyBook(); break;
+            case 6: deleteBook(); break;
+            case 7: issueBook(); break;
+            case 8: returnBook(); break;
+            case 9:
+                printf("Exiting. Goodbye!\n");
+                exit(0);
+            default:
+                printf("Invalid choice. Try again.\n");
+        }
+    }
+    return 0;
+}
+
+/* ---------- Utility functions ---------- */
+
+/* Clears characters left in stdin buffer */
+void clear_stdin(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF) {}
+}
+
+/* Pause to let user read and (optionally) clear screen */
+void pause_and_clear(void) {
+    printf("\nPress Enter to continue...");
+    getchar();
+    // Not calling system("clear") or system("cls") for portability
+}
+
+/* Remove trailing newline from fgets */
+void removeNewline(char *s) {
+    size_t len = strlen(s);
+    if (len == 0) return;
+    if (s[len - 1] == '\n') s[len - 1] = '\0';
+}
+
+/* ---------- File/Record helper functions ---------- */
+
+/*
+ * Search for a book by id.
+ * If found, copies the book to foundBook (if not NULL) and returns 1.
+ * Otherwise returns 0.
+ */
+int bookExists(int id, Book *foundBook) {
+    FILE *fp = fopen(BOOKS_FILE, "rb");
+    if (!fp) return 0;
+    Book b;
+    while (fread(&b, sizeof(Book), 1, fp) == 1) {
+        if (b.id == id) {
+            if (foundBook) *foundBook = b;
+            fclose(fp);
+            return 1;
+        }
+    }
+    fclose(fp);
+    return 0;
+}
+
+/*
+ * Replace (update) a book record in file. It finds the record by id and
+ * overwrites it with updatedBook.
+ */
+void updateBookRecord(Book *updatedBook) {
+    FILE *fp = fopen(BOOKS_FILE, "r+b");
+    if (!fp) {
+        printf("Books file not found!\n");
+        return;
+    }
+    Book b;
+    while (fread(&b, sizeof(Book), 1, fp) == 1) {
+        if (b.id == updatedBook->id) {
+            fseek(fp, -((long)sizeof(Book)), SEEK_CUR);
+            fwrite(updatedBook, sizeof(Book), 1, fp);
+            fclose(fp);
+            return;
+        }
+    }
+    fclose(fp);
+}
+
+/* ---------- Core operations ---------- */
+
+/* Add a new book to the collection */
+void addBook(void) {
+    Book b;
+    printf("\n--- Add New Book ---\n");
+    printf("Enter book ID (integer): ");
+    if (scanf("%d", &b.id) != 1) {
+        printf("Invalid ID.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+
+    if (bookExists(b.id, NULL)) {
+        printf("Book with ID %d already exists. Use Modify to change it.\n", b.id);
+        return;
+    }
+
+    printf("Enter title: ");
+    fgets(b.title, MAX_STRING, stdin);
+    removeNewline(b.title);
+
+    printf("Enter author: ");
+    fgets(b.author, MAX_STRING, stdin);
+    removeNewline(b.author);
+
+    printf("Enter publisher: ");
+    fgets(b.publisher, MAX_STRING, stdin);
+    removeNewline(b.publisher);
+
+    printf("Enter quantity (number of copies): ");
+    if (scanf("%d", &b.quantity) != 1) {
+        printf("Invalid number.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+
+    FILE *fp = fopen(BOOKS_FILE, "ab");
+    if (!fp) {
+        printf("Error opening file for writing.\n");
+        return;
+    }
+    fwrite(&b, sizeof(Book), 1, fp);
+    fclose(fp);
+    printf("Book added successfully.\n");
+}
+
+/* Display all books */
+void displayBooks(void) {
+    FILE *fp = fopen(BOOKS_FILE, "rb");
+    if (!fp) {
+        printf("\nNo books found. File does not exist or is empty.\n");
+        return;
+    }
+    printf("\n--- Book List ---\n");
+    Book b;
+    int found = 0;
+    printf("%-6s | %-30s | %-20s | %-20s | %s\n", "ID", "Title", "Author", "Publisher", "Qty");
+    printf("---------------------------------------------------------------------------------------\n");
+    while (fread(&b, sizeof(Book), 1, fp) == 1) {
+        printf("%-6d | %-30s | %-20s | %-20s | %d\n", b.id, b.title, b.author, b.publisher, b.quantity);
+        found = 1;
+    }
+    if (!found) printf("No books in the library.\n");
+    fclose(fp);
+}
+
+/* Search book by ID */
+void searchBookById(void) {
+    int id;
+    printf("\nEnter Book ID to search: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Invalid input.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+    Book b;
+    if (bookExists(id, &b)) {
+        printf("\nBook found:\n");
+        printf("ID: %d\nTitle: %s\nAuthor: %s\nPublisher: %s\nQuantity: %d\n",
+            b.id, b.title, b.author, b.publisher, b.quantity);
+    } else {
+        printf("Book with ID %d not found.\n", id);
+    }
+}
+
+/* Search book by Title (partial match, case-sensitive simple search) */
+void searchBookByTitle(void) {
+    char term[MAX_STRING];
+    printf("\nEnter title or part of title to search: ");
+    fgets(term, MAX_STRING, stdin);
+    removeNewline(term);
+
+    FILE *fp = fopen(BOOKS_FILE, "rb");
+    if (!fp) {
+        printf("No books file found.\n");
+        return;
+    }
+    Book b;
+    int found = 0;
+    printf("\nSearch results for \"%s\":\n", term);
+    while (fread(&b, sizeof(Book), 1, fp) == 1) {
+        if (strstr(b.title, term) != NULL) {
+            if (!found) {
+                printf("%-6s | %-30s | %-20s | %-20s | %s\n", "ID", "Title", "Author", "Publisher", "Qty");
+                printf("---------------------------------------------------------------------------------------\n");
+            }
+            printf("%-6d | %-30s | %-20s | %-20s | %d\n", b.id, b.title, b.author, b.publisher, b.quantity);
+            found = 1;
+        }
+    }
+    if (!found) printf("No books matched the search.\n");
+    fclose(fp);
+}
+
+/* Modify a book's information (except ID) */
+void modifyBook(void) {
+    int id;
+    printf("\nEnter Book ID to modify: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Invalid input.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+    Book b;
+    if (!bookExists(id, &b)) {
+        printf("Book with ID %d not found.\n", id);
+        return;
+    }
+
+    printf("\nCurrent details:\n");
+    printf("1. Title: %s\n2. Author: %s\n3. Publisher: %s\n4. Quantity: %d\n",
+           b.title, b.author, b.publisher, b.quantity);
+
+    printf("\nEnter new title (press Enter to keep unchanged): ");
+    char tmp[MAX_STRING];
+    fgets(tmp, MAX_STRING, stdin);
+    removeNewline(tmp);
+    if (strlen(tmp) > 0) strncpy(b.title, tmp, MAX_STRING);
+
+    printf("Enter new author (press Enter to keep unchanged): ");
+    fgets(tmp, MAX_STRING, stdin);
+    removeNewline(tmp);
+    if (strlen(tmp) > 0) strncpy(b.author, tmp, MAX_STRING);
+
+    printf("Enter new publisher (press Enter to keep unchanged): ");
+    fgets(tmp, MAX_STRING, stdin);
+    removeNewline(tmp);
+    if (strlen(tmp) > 0) strncpy(b.publisher, tmp, MAX_STRING);
+
+    printf("Enter new quantity (enter -1 to keep unchanged): ");
+    int q;
+    if (scanf("%d", &q) == 1) {
+        clear_stdin();
+        if (q >= 0) b.quantity = q;
+    } else {
+        clear_stdin();
+        printf("Invalid quantity input; quantity unchanged.\n");
+    }
+
+    updateBookRecord(&b);
+    printf("Book updated successfully.\n");
+}
+
+/* Delete a book by copying all except the selected id to a temp file */
+void deleteBook(void) {
+    int id;
+    printf("\nEnter Book ID to delete: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Invalid input.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+
+    FILE *fp = fopen(BOOKS_FILE, "rb");
+    if (!fp) {
+        printf("No books file found.\n");
+        return;
+    }
+    FILE *temp = fopen("temp.dat", "wb");
+    if (!temp) {
+        fclose(fp);
+        printf("Error creating temporary file.\n");
+        return;
+    }
+
+    Book b;
+    int deleted = 0;
+    while (fread(&b, sizeof(Book), 1, fp) == 1) {
+        if (b.id == id) {
+            deleted = 1;
+            continue; // skip this record
+        }
+        fwrite(&b, sizeof(Book), 1, temp);
+    }
+
+    fclose(fp);
+    fclose(temp);
+
+    if (deleted) {
+        remove(BOOKS_FILE);
+        rename("temp.dat", BOOKS_FILE);
+        printf("Book with ID %d deleted.\n", id);
+
+        // Also remove any outstanding issues for that book (optional behavior)
+        // We'll keep issues as-is to maintain a record; depending on design, you might delete them.
+    } else {
+        remove("temp.dat");
+        printf("Book with ID %d not found.\n", id);
+    }
+}
+
+/* Issue a book to a student: reduces quantity by 1 and creates issue record */
+void issueBook(void) {
+    int id;
+    printf("\nEnter Book ID to issue: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Invalid input.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+
+    Book b;
+    if (!bookExists(id, &b)) {
+        printf("Book with ID %d not found.\n", id);
+        return;
+    }
+
+    if (b.quantity <= 0) {
+        printf("No copies available to issue.\n");
+        return;
+    }
+
+    Issue iss;
+    iss.book_id = id;
+    printf("Enter student name: ");
+    fgets(iss.student_name, MAX_STRING, stdin);
+    removeNewline(iss.student_name);
+
+    printf("Enter issue date (YYYY-MM-DD): ");
+    fgets(iss.issue_date, sizeof(iss.issue_date), stdin);
+    removeNewline(iss.issue_date);
+
+    // Write issue record
+    FILE *fiss = fopen(ISSUES_FILE, "ab");
+    if (!fiss) {
+        printf("Error opening issues file for writing.\n");
+        return;
+    }
+    fwrite(&iss, sizeof(Issue), 1, fiss);
+    fclose(fiss);
+
+    // Decrement quantity and update book record
+    b.quantity -= 1;
+    updateBookRecord(&b);
+
+    printf("Book issued successfully to %s on %s.\n", iss.student_name, iss.issue_date);
+}
+
+/* Return a book: finds an issue record and removes it, increments quantity */
+void returnBook(void) {
+    int id;
+    char student[MAX_STRING];
+    printf("\nEnter Book ID to return: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Invalid input.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+
+    printf("Enter student name who is returning: ");
+    fgets(student, MAX_STRING, stdin);
+    removeNewline(student);
+
+    FILE *fiss = fopen(ISSUES_FILE, "rb");
+    if (!fiss) {
+        printf("No issues file found; nothing to return.\n");
+        return;
+    }
+    FILE *temp = fopen("temp_issues.dat", "wb");
+    if (!temp) {
+        fclose(fiss);
+        printf("Error creating temporary file.\n");
+        return;
+    }
+
+    Issue iss;
+    int returned = 0;
+    while (fread(&iss, sizeof(Issue), 1, fiss) == 1) {
+        if (!returned && iss.book_id == id && strcmp(iss.student_name, student) == 0) {
+            // Found the matching issue - do not write it (effectively deleting it)
+            returned = 1;
+            continue;
+        }
+        fwrite(&iss, sizeof(Issue), 1, temp);
+    }
+    fclose(fiss);
+    fclose(temp);
+
+    if (returned) {
+        remove(ISSUES_FILE);
+        rename("temp_issues.dat", ISSUES_FILE);
+
+        // Increment book quantity
+        Book b;
+        if (bookExists(id, &b)) {
+            b.quantity += 1;
+            updateBookRecord(&b);
+            printf("Book returned successfully. Quantity updated.\n");
+        } else {
+            // Book record missing: this is unlikely but handle gracefully
+            printf("Returned book's record not found in books file. Issue record removed anyway.\n");
+        }
+    } else {
+        remove("temp_issues.dat");
+        printf("No matching issue record found for Book ID %d and student \"%s\".\n", id, student);
+    }
+}
+
+gcc code.c -o code
+./code/*
+ * Simple Library Management System in C
+ * Features:
+ *  - Add book
+ *  - Display all books
+ *  - Search book by ID or Title
+ *  - Modify book record
+ *  - Delete book record
+ *  - Issue book to student
+ *  - Return book
+ *  - Persist data in binary files: books.dat and issues.dat
+ *
+ * Note: This is a console program for learning/educational use.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define BOOKS_FILE "books.dat"
+#define ISSUES_FILE "issues.dat"
+#define MAX_STRING 100
+
+/* Book structure */
+typedef struct {
+    int id;                         // unique book id
+    char title[MAX_STRING];
+    char author[MAX_STRING];
+    char publisher[MAX_STRING];
+    int quantity;                   // total copies available in library
+} Book;
+
+/* Issue structure - keeps track of issued books */
+typedef struct {
+    int book_id;                    // id of the issued book
+    char student_name[MAX_STRING];  // who borrowed
+    char issue_date[20];            // simplified date as string (e.g. "2025-11-04")
+} Issue;
+
+/* Utility prototypes */
+void clear_stdin(void);
+void pause_and_clear(void);
+
+/* Core operations prototypes */
+void addBook(void);
+void displayBooks(void);
+void searchBookById(void);
+void searchBookByTitle(void);
+void modifyBook(void);
+void deleteBook(void);
+void issueBook(void);
+void returnBook(void);
+
+/* Helper file functions */
+int bookExists(int id, Book *foundBook);
+void updateBookRecord(Book *updatedBook);
+void removeNewline(char *s);
+
+/* ---------- Implementation ---------- */
+
+int main(void) {
+    int choice;
+    while (1) {
+        printf("\n==== Library Management System ====\n");
+        printf("1. Add Book\n");
+        printf("2. Display All Books\n");
+        printf("3. Search Book by ID\n");
+        printf("4. Search Book by Title\n");
+        printf("5. Modify Book\n");
+        printf("6. Delete Book\n");
+        printf("7. Issue Book\n");
+        printf("8. Return Book\n");
+        printf("9. Exit\n");
+        printf("Enter your choice: ");
+        if (scanf("%d", &choice) != 1) {
+            printf("Invalid input. Please enter a number.\n");
+            clear_stdin();
+            continue;
+        }
+        clear_stdin();
+
+        switch (choice) {
+            case 1: addBook(); break;
+            case 2: displayBooks(); break;
+            case 3: searchBookById(); break;
+            case 4: searchBookByTitle(); break;
+            case 5: modifyBook(); break;
+            case 6: deleteBook(); break;
+            case 7: issueBook(); break;
+            case 8: returnBook(); break;
+            case 9:
+                printf("Exiting. Goodbye!\n");
+                exit(0);
+            default:
+                printf("Invalid choice. Try again.\n");
+        }
+    }
+    return 0;
+}
+
+/* ---------- Utility functions ---------- */
+
+/* Clears characters left in stdin buffer */
+void clear_stdin(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF) {}
+}
+
+/* Pause to let user read and (optionally) clear screen */
+void pause_and_clear(void) {
+    printf("\nPress Enter to continue...");
+    getchar();
+    // Not calling system("clear") or system("cls") for portability
+}
+
+/* Remove trailing newline from fgets */
+void removeNewline(char *s) {
+    size_t len = strlen(s);
+    if (len == 0) return;
+    if (s[len - 1] == '\n') s[len - 1] = '\0';
+}
+
+/* ---------- File/Record helper functions ---------- */
+
+/*
+ * Search for a book by id.
+ * If found, copies the book to foundBook (if not NULL) and returns 1.
+ * Otherwise returns 0.
+ */
+int bookExists(int id, Book *foundBook) {
+    FILE *fp = fopen(BOOKS_FILE, "rb");
+    if (!fp) return 0;
+    Book b;
+    while (fread(&b, sizeof(Book), 1, fp) == 1) {
+        if (b.id == id) {
+            if (foundBook) *foundBook = b;
+            fclose(fp);
+            return 1;
+        }
+    }
+    fclose(fp);
+    return 0;
+}
+
+/*
+ * Replace (update) a book record in file. It finds the record by id and
+ * overwrites it with updatedBook.
+ */
+void updateBookRecord(Book *updatedBook) {
+    FILE *fp = fopen(BOOKS_FILE, "r+b");
+    if (!fp) {
+        printf("Books file not found!\n");
+        return;
+    }
+    Book b;
+    while (fread(&b, sizeof(Book), 1, fp) == 1) {
+        if (b.id == updatedBook->id) {
+            fseek(fp, -((long)sizeof(Book)), SEEK_CUR);
+            fwrite(updatedBook, sizeof(Book), 1, fp);
+            fclose(fp);
+            return;
+        }
+    }
+    fclose(fp);
+}
+
+/* ---------- Core operations ---------- */
+
+/* Add a new book to the collection */
+void addBook(void) {
+    Book b;
+    printf("\n--- Add New Book ---\n");
+    printf("Enter book ID (integer): ");
+    if (scanf("%d", &b.id) != 1) {
+        printf("Invalid ID.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+
+    if (bookExists(b.id, NULL)) {
+        printf("Book with ID %d already exists. Use Modify to change it.\n", b.id);
+        return;
+    }
+
+    printf("Enter title: ");
+    fgets(b.title, MAX_STRING, stdin);
+    removeNewline(b.title);
+
+    printf("Enter author: ");
+    fgets(b.author, MAX_STRING, stdin);
+    removeNewline(b.author);
+
+    printf("Enter publisher: ");
+    fgets(b.publisher, MAX_STRING, stdin);
+    removeNewline(b.publisher);
+
+    printf("Enter quantity (number of copies): ");
+    if (scanf("%d", &b.quantity) != 1) {
+        printf("Invalid number.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+
+    FILE *fp = fopen(BOOKS_FILE, "ab");
+    if (!fp) {
+        printf("Error opening file for writing.\n");
+        return;
+    }
+    fwrite(&b, sizeof(Book), 1, fp);
+    fclose(fp);
+    printf("Book added successfully.\n");
+}
+
+/* Display all books */
+void displayBooks(void) {
+    FILE *fp = fopen(BOOKS_FILE, "rb");
+    if (!fp) {
+        printf("\nNo books found. File does not exist or is empty.\n");
+        return;
+    }
+    printf("\n--- Book List ---\n");
+    Book b;
+    int found = 0;
+    printf("%-6s | %-30s | %-20s | %-20s | %s\n", "ID", "Title", "Author", "Publisher", "Qty");
+    printf("---------------------------------------------------------------------------------------\n");
+    while (fread(&b, sizeof(Book), 1, fp) == 1) {
+        printf("%-6d | %-30s | %-20s | %-20s | %d\n", b.id, b.title, b.author, b.publisher, b.quantity);
+        found = 1;
+    }
+    if (!found) printf("No books in the library.\n");
+    fclose(fp);
+}
+
+/* Search book by ID */
+void searchBookById(void) {
+    int id;
+    printf("\nEnter Book ID to search: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Invalid input.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+    Book b;
+    if (bookExists(id, &b)) {
+        printf("\nBook found:\n");
+        printf("ID: %d\nTitle: %s\nAuthor: %s\nPublisher: %s\nQuantity: %d\n",
+            b.id, b.title, b.author, b.publisher, b.quantity);
+    } else {
+        printf("Book with ID %d not found.\n", id);
+    }
+}
+
+/* Search book by Title (partial match, case-sensitive simple search) */
+void searchBookByTitle(void) {
+    char term[MAX_STRING];
+    printf("\nEnter title or part of title to search: ");
+    fgets(term, MAX_STRING, stdin);
+    removeNewline(term);
+
+    FILE *fp = fopen(BOOKS_FILE, "rb");
+    if (!fp) {
+        printf("No books file found.\n");
+        return;
+    }
+    Book b;
+    int found = 0;
+    printf("\nSearch results for \"%s\":\n", term);
+    while (fread(&b, sizeof(Book), 1, fp) == 1) {
+        if (strstr(b.title, term) != NULL) {
+            if (!found) {
+                printf("%-6s | %-30s | %-20s | %-20s | %s\n", "ID", "Title", "Author", "Publisher", "Qty");
+                printf("---------------------------------------------------------------------------------------\n");
+            }
+            printf("%-6d | %-30s | %-20s | %-20s | %d\n", b.id, b.title, b.author, b.publisher, b.quantity);
+            found = 1;
+        }
+    }
+    if (!found) printf("No books matched the search.\n");
+    fclose(fp);
+}
+
+/* Modify a book's information (except ID) */
+void modifyBook(void) {
+    int id;
+    printf("\nEnter Book ID to modify: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Invalid input.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+    Book b;
+    if (!bookExists(id, &b)) {
+        printf("Book with ID %d not found.\n", id);
+        return;
+    }
+
+    printf("\nCurrent details:\n");
+    printf("1. Title: %s\n2. Author: %s\n3. Publisher: %s\n4. Quantity: %d\n",
+           b.title, b.author, b.publisher, b.quantity);
+
+    printf("\nEnter new title (press Enter to keep unchanged): ");
+    char tmp[MAX_STRING];
+    fgets(tmp, MAX_STRING, stdin);
+    removeNewline(tmp);
+    if (strlen(tmp) > 0) strncpy(b.title, tmp, MAX_STRING);
+
+    printf("Enter new author (press Enter to keep unchanged): ");
+    fgets(tmp, MAX_STRING, stdin);
+    removeNewline(tmp);
+    if (strlen(tmp) > 0) strncpy(b.author, tmp, MAX_STRING);
+
+    printf("Enter new publisher (press Enter to keep unchanged): ");
+    fgets(tmp, MAX_STRING, stdin);
+    removeNewline(tmp);
+    if (strlen(tmp) > 0) strncpy(b.publisher, tmp, MAX_STRING);
+
+    printf("Enter new quantity (enter -1 to keep unchanged): ");
+    int q;
+    if (scanf("%d", &q) == 1) {
+        clear_stdin();
+        if (q >= 0) b.quantity = q;
+    } else {
+        clear_stdin();
+        printf("Invalid quantity input; quantity unchanged.\n");
+    }
+
+    updateBookRecord(&b);
+    printf("Book updated successfully.\n");
+}
+
+/* Delete a book by copying all except the selected id to a temp file */
+void deleteBook(void) {
+    int id;
+    printf("\nEnter Book ID to delete: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Invalid input.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+
+    FILE *fp = fopen(BOOKS_FILE, "rb");
+    if (!fp) {
+        printf("No books file found.\n");
+        return;
+    }
+    FILE *temp = fopen("temp.dat", "wb");
+    if (!temp) {
+        fclose(fp);
+        printf("Error creating temporary file.\n");
+        return;
+    }
+
+    Book b;
+    int deleted = 0;
+    while (fread(&b, sizeof(Book), 1, fp) == 1) {
+        if (b.id == id) {
+            deleted = 1;
+            continue; // skip this record
+        }
+        fwrite(&b, sizeof(Book), 1, temp);
+    }
+
+    fclose(fp);
+    fclose(temp);
+
+    if (deleted) {
+        remove(BOOKS_FILE);
+        rename("temp.dat", BOOKS_FILE);
+        printf("Book with ID %d deleted.\n", id);
+
+        // Also remove any outstanding issues for that book (optional behavior)
+        // We'll keep issues as-is to maintain a record; depending on design, you might delete them.
+    } else {
+        remove("temp.dat");
+        printf("Book with ID %d not found.\n", id);
+    }
+}
+
+/* Issue a book to a student: reduces quantity by 1 and creates issue record */
+void issueBook(void) {
+    int id;
+    printf("\nEnter Book ID to issue: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Invalid input.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+
+    Book b;
+    if (!bookExists(id, &b)) {
+        printf("Book with ID %d not found.\n", id);
+        return;
+    }
+
+    if (b.quantity <= 0) {
+        printf("No copies available to issue.\n");
+        return;
+    }
+
+    Issue iss;
+    iss.book_id = id;
+    printf("Enter student name: ");
+    fgets(iss.student_name, MAX_STRING, stdin);
+    removeNewline(iss.student_name);
+
+    printf("Enter issue date (YYYY-MM-DD): ");
+    fgets(iss.issue_date, sizeof(iss.issue_date), stdin);
+    removeNewline(iss.issue_date);
+
+    // Write issue record
+    FILE *fiss = fopen(ISSUES_FILE, "ab");
+    if (!fiss) {
+        printf("Error opening issues file for writing.\n");
+        return;
+    }
+    fwrite(&iss, sizeof(Issue), 1, fiss);
+    fclose(fiss);
+
+    // Decrement quantity and update book record
+    b.quantity -= 1;
+    updateBookRecord(&b);
+
+    printf("Book issued successfully to %s on %s.\n", iss.student_name, iss.issue_date);
+}
+
+/* Return a book: finds an issue record and removes it, increments quantity */
+void returnBook(void) {
+    int id;
+    char student[MAX_STRING];
+    printf("\nEnter Book ID to return: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Invalid input.\n");
+        clear_stdin();
+        return;
+    }
+    clear_stdin();
+
+    printf("Enter student name who is returning: ");
+    fgets(student, MAX_STRING, stdin);
+    removeNewline(student);
+
+    FILE *fiss = fopen(ISSUES_FILE, "rb");
+    if (!fiss) {
+        printf("No issues file found; nothing to return.\n");
+        return;
+    }
+    FILE *temp = fopen("temp_issues.dat", "wb");
+    if (!temp) {
+        fclose(fiss);
+        printf("Error creating temporary file.\n");
+        return;
+    }
+
+    Issue iss;
+    int returned = 0;
+    while (fread(&iss, sizeof(Issue), 1, fiss) == 1) {
+        if (!returned && iss.book_id == id && strcmp(iss.student_name, student) == 0) {
+            // Found the matching issue - do not write it (effectively deleting it)
+            returned = 1;
+            continue;
+        }
+        fwrite(&iss, sizeof(Issue), 1, temp);
+    }
+    fclose(fiss);
+    fclose(temp);
+
+    if (returned) {
+        remove(ISSUES_FILE);
+        rename("temp_issues.dat", ISSUES_FILE);
+
+        // Increment book quantity
+        Book b;
+        if (bookExists(id, &b)) {
+            b.quantity += 1;
+            updateBookRecord(&b);
+            printf("Book returned successfully. Quantity updated.\n");
+        } else {
+            // Book record missing: this is unlikely but handle gracefully
+            printf("Returned book's record not found in books file. Issue record removed anyway.\n");
+        }
+    } else {
+        remove("temp_issues.dat");
+        printf("No matching issue record found for Book ID %d and student \"%s\".\n", id, student);
+    }
+}
